@@ -1,0 +1,64 @@
+schema_version: "0.5.0"
+
+before_install:
+
+  appveyor:
+    environment:
+      PATH: $<PYTHON_DIR>;$<PYTHON_DIR>\\Scripts;$<PATH>
+      RUN_ENV: .\\..\\addons\\appveyor\\run-with-visual-studio.cmd
+    commands:
+      - python ../addons/appveyor/patch_vs2008.py
+
+  circle:
+    environment:
+      PATH: /opt/python/$<MANYLINUX_PYTHON>/bin:$<PATH>
+
+  travis:
+    osx:
+      environment:
+        PATH: $<HOME>/.pyenv/versions/$<PYTHON_VERSION>/bin:$<PATH>
+        SETUP_BDIST_WHEEL_ARGS: --plat-name macosx-10.6-x86_64
+      commands:
+        - python ../addons/travis/install_pyenv.py
+
+install:
+  commands:
+    - python --version
+    - python -m pip install --disable-pip-version-check --upgrade pip
+    - pip install -U setuptools
+    - $<RUN_ENV> pip install -U -r requirements-dev.txt
+
+before_build:
+  commands:
+    - flake8
+
+build:
+  commands:
+    - python setup.py sdist
+    - python: |
+              import glob, os
+              if os.environ.get("UPLOAD_SDIST", "") == "":
+                  sdist=(glob.glob("dist/*.tar.gz") + glob.glob("dist/*.zip"))[0]
+                  print("Deleting [%s]" % sdist)
+                  os.remove(sdist)
+    - $<RUN_ENV> python setup.py bdist_wheel $<SETUP_BDIST_WHEEL_ARGS>
+
+  circle:
+    commands:
+      - |
+        # Since there are no external shared libraries to bundle into the wheels
+        # this step will fixup the wheel switching from 'linux' to 'manylinux1' tag
+        for whl in dist/*$(python -c "import wheel.pep425tags as w; print(w.get_platform())").whl; do
+            auditwheel repair $whl -w ./dist/
+            rm $whl
+        done
+
+test:
+  commands:
+    - python setup.py test
+
+after_test:
+  commands:
+    #- codecov -X gcov --required --file ./tests/coverage.xml
+    - python setup.py clean
+
